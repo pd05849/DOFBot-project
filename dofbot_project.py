@@ -11,7 +11,7 @@ e_z = np.array([[0], [0], [1]])
 
 H = np.hstack([e_z, -e_y, -e_y, -e_y, -e_x])
 
-in2m = 0.0254
+in2m = 2.54
 l0 = in2m*(3)
 l1 = in2m*(1.125) # base to servo 1
 l2 = in2m*(3.25) # servo 1 to 2
@@ -29,12 +29,57 @@ P5T = -(l4+l5)*e_x # translation between 5 and tool frame in 5 frame
 P = np.hstack([P01, P12, P23, P34, P45, P5T])
 q_1 = np.array([np.pi/2, np.pi/2, np.pi/2, np.pi/2, np.pi/2])
 
-N = [0, 0, 0, 0, 0]
+N = [0, 0, 0, 0, 0,]
 
 DOFbot = grt.Robot(H, P, N)
 
 DOFbot_fk = grt.fwdkin(DOFbot, q_1.reshape(-1,1))
-P_d = DOFbot_fk.p
-print(np.around(P_d/in2m, decimals=2))
-R_d = DOFbot_fk.R
-print(R_d)
+
+# Create a Transform object from the forward kinematics result
+T_d = grt.Transform(R=DOFbot_fk.R, p=DOFbot_fk.p)
+
+# Print position vector (rounded)
+print("Position vector (meters):")
+print(np.around(T_d.p, decimals=3))
+
+# Print rotation matrix
+print("\nRotation matrix:")
+print(np.around(T_d.R, decimals=3))
+
+# Now let's calculate inverse kinematics using ur_invkin
+print("\nCalculating Inverse Kinematics using ur_invkin:")
+print("---------------------------------------------")
+
+try:
+    # Calculate inverse kinematics using iterative_invkin
+    converged, q_sols = grt.iterative_invkin(
+        robot=DOFbot,
+        desired_pose=T_d,
+        q_current=q_1.reshape(-1,1),  # Use current configuration as seed
+        max_steps=200,                 # Default max iterations
+        Kp=0.3*np.eye(3),             # Position gain
+        KR=0.3*np.eye(3),             # Rotation gain
+        tol=1e-4                       # Convergence tolerance
+    )
+    
+    print("\nInverse Kinematics Results:")
+    print("-------------------------")
+    if converged:
+        print("Solution found!")
+        print("\nJoint angles (radians):")
+        print(np.around(q_sols[0], decimals=3))
+        
+        # Verify the solution
+        verify_fk = grt.fwdkin(DOFbot, q_sols[0])
+        pos_error = np.linalg.norm(verify_fk.p - T_d.p)
+        rot_error = np.linalg.norm(verify_fk.R - T_d.R, ord='fro')
+        print(f"\nPosition error: {pos_error:.6f} meters")
+        print(f"Rotation error: {rot_error:.6f}")
+    else:
+        print("Algorithm did not converge to a solution")
+        
+except Exception as e:
+    print(f"\nError in inverse kinematics calculation: {str(e)}")
+    print("This might happen if the position is unreachable or if there's no valid solution")
+
+print(q_sols)
